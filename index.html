@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ドローン事故データベース — Drone Incident DB</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600&family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+/* ── リセット & ベース ────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #0d0f14;
+  --surface:   #141720;
+  --surface2:  #1c2030;
+  --border:    #2a2f3f;
+  --border2:   #353c52;
+  --text:      #e4e8f2;
+  --text2:     #8890a6;
+  --text3:     #4e5670;
+  --accent:    #4f8ef7;
+  --accent-d:  #1a4da8;
+  --domestic:  #3ecf8e;
+  --intl:      #f59e42;
+  --critical:  #f04b4b;
+  --mono:      'DM Mono', monospace;
+  --sans:      'Noto Sans JP', sans-serif;
+  --display:   'Syne', sans-serif;
+  --radius:    10px;
+  --radius-lg: 16px;
+}
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.7;
+  font-size: 15px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── レイアウト ───────────────────────────────────────── */
+.page-wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+/* ── ヘッダー ─────────────────────────────────────────── */
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 28px 0 24px;
+  animation: fadeDown 0.5s ease both;
+}
+.header-inner {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.logo-block {}
+.logo-eyebrow {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+  color: var(--accent); text-transform: uppercase; margin-bottom: 6px;
+}
+.logo-title {
+  font-family: var(--display); font-size: clamp(22px, 4vw, 32px);
+  font-weight: 800; letter-spacing: -0.02em;
+  color: var(--text); line-height: 1.15;
+}
+.logo-title span { color: var(--accent); }
+.logo-sub {
+  font-size: 13px; color: var(--text2); margin-top: 4px;
+}
+.header-meta { text-align: right; }
+.last-updated {
+  font-family: var(--mono); font-size: 11px; color: var(--text3);
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 6px 12px; border-radius: 99px; white-space: nowrap;
+}
+#live-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--domestic); margin-right: 6px;
+  animation: pulse 2s ease infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── 統計バー ─────────────────────────────────────────── */
+.stats-bar {
+  display: flex; gap: 0; margin: 20px 0;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; animation: fadeUp 0.5s 0.1s ease both;
+}
+.stat-item {
+  flex: 1; padding: 16px 20px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.stat-item:last-child { border-right: none; }
+.stat-num {
+  font-family: var(--display); font-size: 26px; font-weight: 700;
+  color: var(--text); line-height: 1.1;
+}
+.stat-label { font-size: 11px; color: var(--text3); margin-top: 2px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+/* ── コントロールバー ─────────────────────────────────── */
+.controls {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  margin-bottom: 16px; animation: fadeUp 0.5s 0.15s ease both;
+}
+.tab-group { display: flex; border: 1px solid var(--border); border-radius: 99px; overflow: hidden; }
+.tab-btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 500;
+  padding: 7px 18px; border: none; background: transparent;
+  color: var(--text2); cursor: pointer; transition: all 0.2s;
+  white-space: nowrap;
+}
+.tab-btn:hover { background: var(--surface2); color: var(--text); }
+.tab-btn.active { background: var(--accent); color: #fff; }
+.tab-btn.active[data-tab="domestic"]  { background: var(--domestic); }
+.tab-btn.active[data-tab="international"] { background: var(--intl); }
+
+.search-wrap {
+  flex: 1; min-width: 220px; position: relative;
+}
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text3); pointer-events: none; font-size: 15px;
+  display: flex; align-items: center;
+}
+.search-input {
+  width: 100%; padding: 8px 12px 8px 36px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 99px; color: var(--text); font-size: 13px;
+  font-family: var(--sans); outline: none; transition: border-color 0.2s;
+}
+.search-input::placeholder { color: var(--text3); }
+.search-input:focus { border-color: var(--accent); }
+
+.sort-select {
+  padding: 8px 14px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 99px; color: var(--text2); font-size: 13px;
+  font-family: var(--sans); cursor: pointer; outline: none;
+}
+.sort-select:focus { border-color: var(--accent); }
+
+/* ── 結果カウント ─────────────────────────────────────── */
+.result-meta {
+  font-size: 12px; color: var(--text3); font-family: var(--mono);
+  margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;
+  animation: fadeUp 0.4s 0.2s ease both;
+}
+
+/* ── テーブル ─────────────────────────────────────────── */
+.table-wrap {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; animation: fadeUp 0.5s 0.2s ease both;
+}
+table { width: 100%; border-collapse: collapse; }
+thead tr { background: var(--surface); border-bottom: 1px solid var(--border2); }
+thead th {
+  padding: 11px 16px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text3); font-weight: 500;
+  text-align: left; white-space: nowrap;
+}
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--surface); }
+tbody td { padding: 13px 16px; font-size: 14px; vertical-align: middle; }
+
+.td-date {
+  font-family: var(--mono); font-size: 12px; color: var(--text2);
+  white-space: nowrap;
+}
+.td-loc {
+  font-size: 12px; color: var(--text2); white-space: nowrap;
+}
+.td-type .badge {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  padding: 2px 9px; border-radius: 99px; letter-spacing: 0.05em; white-space: nowrap;
+}
+.badge-domestic    { background: rgba(62,207,142,0.12); color: var(--domestic); border: 1px solid rgba(62,207,142,0.25); }
+.badge-international { background: rgba(245,158,66,0.12); color: var(--intl); border: 1px solid rgba(245,158,66,0.25); }
+.td-title a {
+  color: var(--text); font-weight: 500; line-height: 1.45;
+  transition: color 0.15s;
+}
+.td-title a:hover { color: var(--accent); text-decoration: none; }
+.td-title .source-tag {
+  font-size: 11px; color: var(--text3); font-family: var(--mono);
+  display: block; margin-top: 2px;
+}
+.ext-icon { display: inline-block; opacity: 0.4; font-size: 11px; margin-left: 5px; vertical-align: middle; }
+
+/* ── ページネーション ─────────────────────────────────── */
+.pagination {
+  display: flex; align-items: center; justify-content: center;
+  gap: 6px; margin-top: 24px; flex-wrap: wrap;
+}
+.page-btn {
+  width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text2); font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; font-family: var(--mono);
+}
+.page-btn:hover { border-color: var(--accent); color: var(--accent); }
+.page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.page-btn:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
+.page-dots { color: var(--text3); font-size: 13px; padding: 0 4px; }
+
+/* ── 空状態 ──────────────────────────────────────────── */
+.empty-state {
+  text-align: center; padding: 60px 24px; color: var(--text2);
+}
+.empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
+.empty-state p { font-size: 14px; color: var(--text3); }
+
+/* ── フッター ─────────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border); margin-top: 48px;
+  padding: 20px 0 32px; text-align: center;
+  font-family: var(--mono); font-size: 11px; color: var(--text3);
+}
+footer a { color: var(--text3); }
+footer a:hover { color: var(--accent); }
+
+/* ── アニメーション ─────────────────────────────────── */
+@keyframes fadeDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeUp   { from{opacity:0;transform:translateY( 12px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── レスポンシブ ─────────────────────────────────────── */
+@media (max-width: 700px) {
+  .stats-bar { flex-direction: column; }
+  .stat-item { border-right: none; border-bottom: 1px solid var(--border); }
+  .stat-item:last-child { border-bottom: none; }
+  thead th.hide-sp, tbody td.hide-sp { display: none; }
+  .header-meta { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- ヘッダー -->
+  <header>
+    <div class="header-inner">
+      <div class="logo-block">
+        <div class="logo-eyebrow">Drone Safety Intelligence</div>
+        <h1 class="logo-title">ドローン<span>事故</span>データベース</h1>
+        <p class="logo-sub">国内外のドローン事故・墜落・衝突ニュースを毎日自動収集</p>
+      </div>
+      <div class="header-meta">
+        <div class="last-updated" id="last-updated-label">
+          <span id="live-dot"></span>読み込み中…
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 統計バー -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="stat-num" id="stat-total">—</div>
+      <div class="stat-label">総件数</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num" id="stat-domestic">—</div>
+      <div class="stat-label">国内</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num" id="stat-intl">—</div>
+      <div class="stat-label">国外</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num" id="stat-today">—</div>
+      <div class="stat-label">今日の新着</div>
+    </div>
+  </div>
+
+  <!-- コントロール -->
+  <div class="controls">
+    <div class="tab-group" role="tablist">
+      <button class="tab-btn active" data-tab="all"           role="tab" onclick="setTab('all',this)">すべて</button>
+      <button class="tab-btn"        data-tab="domestic"      role="tab" onclick="setTab('domestic',this)">国内</button>
+      <button class="tab-btn"        data-tab="international" role="tab" onclick="setTab('international',this)">国外</button>
+    </div>
+
+    <div class="search-wrap">
+      <span class="search-icon">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      </span>
+      <input id="search-input" class="search-input" type="search"
+             placeholder="キーワード・地域で検索…" oninput="applyFilters()">
+    </div>
+
+    <select id="sort-select" class="sort-select" onchange="applyFilters()">
+      <option value="date-desc">日付：新しい順</option>
+      <option value="date-asc">日付：古い順</option>
+      <option value="title-asc">タイトル：昇順</option>
+    </select>
+  </div>
+
+  <!-- 結果メタ -->
+  <div class="result-meta">
+    <span id="result-count">読み込み中…</span>
+    <span id="page-info"></span>
+  </div>
+
+  <!-- テーブル -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:100px">日付</th>
+          <th class="hide-sp" style="width:110px">地域</th>
+          <th class="hide-sp" style="width:80px">種別</th>
+          <th>タイトル / ソース</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        <tr><td colspan="4"><div class="empty-state"><div class="empty-icon">⏳</div><p>データを読み込んでいます…</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ページネーション -->
+  <div class="pagination" id="pagination"></div>
+
+  <!-- フッター -->
+  <footer>
+    <p>データソース: Google News RSS &nbsp;|&nbsp;
+       自動収集: GitHub Actions &nbsp;|&nbsp;
+       <a href="data.json" target="_blank">data.json ↗</a></p>
+    <p style="margin-top:6px">本サイトのデータは各ニュースサイトの見出しを自動収集したものです。情報の正確性は各ソースをご確認ください。</p>
+  </footer>
+
+</div><!-- /page-wrap -->
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   定数 & 状態
+═══════════════════════════════════════════════════════════ */
+const PAGE_SIZE = 25;
+let allData = [];
+let filtered = [];
+let currentPage = 1;
+let activeTab = 'all';
+
+/* ═══════════════════════════════════════════════════════════
+   データ読み込み
+═══════════════════════════════════════════════════════════ */
+async function loadData() {
+  try {
+    const res = await fetch('data.json?_=' + Date.now());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    allData = await res.json();
+
+    // 統計
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('stat-total').textContent    = allData.length.toLocaleString();
+    document.getElementById('stat-domestic').textContent = allData.filter(d => d.type === 'domestic').length.toLocaleString();
+    document.getElementById('stat-intl').textContent     = allData.filter(d => d.type === 'international').length.toLocaleString();
+    document.getElementById('stat-today').textContent    = allData.filter(d => d.date === today).length.toLocaleString();
+
+    // 最終更新
+    const latest = allData[0]?.date || '—';
+    document.getElementById('last-updated-label').innerHTML =
+      `<span id="live-dot"></span>最終更新: ${latest}`;
+
+    applyFilters();
+  } catch (e) {
+    document.getElementById('table-body').innerHTML =
+      `<tr><td colspan="4"><div class="empty-state">
+         <div class="empty-icon">⚠️</div>
+         <strong>data.json を読み込めませんでした</strong>
+         <p>GitHub Pages へのデプロイ後、または同一ディレクトリに data.json を配置してください。</p>
+         <p style="margin-top:8px;font-size:12px;color:#4e5670">${e.message}</p>
+       </div></td></tr>`;
+    document.getElementById('result-count').textContent = 'エラー';
+    document.getElementById('last-updated-label').innerHTML =
+      '<span id="live-dot"></span>読み込み失敗';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   タブ切り替え
+═══════════════════════════════════════════════════════════ */
+function setTab(tab, btn) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentPage = 1;
+  applyFilters();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   フィルタ & ソート適用
+═══════════════════════════════════════════════════════════ */
+function applyFilters() {
+  const q    = document.getElementById('search-input').value.trim().toLowerCase();
+  const sort = document.getElementById('sort-select').value;
+
+  filtered = allData.filter(item => {
+    if (activeTab !== 'all' && item.type !== activeTab) return false;
+    if (q) {
+      const hay = `${item.title} ${item.location} ${item.date}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (sort === 'date-desc') return b.date.localeCompare(a.date);
+    if (sort === 'date-asc')  return a.date.localeCompare(b.date);
+    if (sort === 'title-asc') return a.title.localeCompare(b.title, 'ja');
+    return 0;
+  });
+
+  currentPage = 1;
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   レンダリング
+═══════════════════════════════════════════════════════════ */
+function render() {
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  currentPage = Math.min(currentPage, totalPages);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const page  = filtered.slice(start, start + PAGE_SIZE);
+
+  document.getElementById('result-count').textContent =
+    `${total.toLocaleString()} 件が見つかりました`;
+  document.getElementById('page-info').textContent =
+    total > 0 ? `${start + 1}–${Math.min(start + PAGE_SIZE, total)} 件を表示` : '';
+
+  const tbody = document.getElementById('table-body');
+  if (page.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4">
+      <div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <strong>該当する事故情報がありません</strong>
+        <p>検索ワードや絞り込み条件を変えてみてください。</p>
+      </div></td></tr>`;
+  } else {
+    tbody.innerHTML = page.map(item => {
+      const badgeCls = item.type === 'domestic' ? 'badge-domestic' : 'badge-international';
+      const badgeLbl = item.type === 'domestic' ? '国内' : '国外';
+      const host     = (() => { try { return new URL(item.link).hostname.replace('www.',''); } catch { return ''; } })();
+      return `
+      <tr>
+        <td class="td-date">${item.date}</td>
+        <td class="td-loc hide-sp">${escHtml(item.location)}</td>
+        <td class="td-type hide-sp"><span class="badge ${badgeCls}">${badgeLbl}</span></td>
+        <td class="td-title">
+          <a href="${escHtml(item.link)}" target="_blank" rel="noopener noreferrer">
+            ${escHtml(item.title)}
+            <span class="ext-icon">↗</span>
+          </a>
+          ${host ? `<span class="source-tag">${escHtml(host)}</span>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  renderPagination(totalPages);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ページネーション
+═══════════════════════════════════════════════════════════ */
+function renderPagination(totalPages) {
+  const pag = document.getElementById('pagination');
+  if (totalPages <= 1) { pag.innerHTML = ''; return; }
+
+  const pages = getPageRange(currentPage, totalPages);
+  let html = '';
+
+  html += `<button class="page-btn" ${currentPage===1?'disabled':''} onclick="goPage(${currentPage-1})">←</button>`;
+  for (const p of pages) {
+    if (p === '…') {
+      html += `<span class="page-dots">…</span>`;
+    } else {
+      html += `<button class="page-btn ${p===currentPage?'active':''}" onclick="goPage(${p})">${p}</button>`;
+    }
+  }
+  html += `<button class="page-btn" ${currentPage===totalPages?'disabled':''} onclick="goPage(${currentPage+1})">→</button>`;
+  pag.innerHTML = html;
+}
+
+function getPageRange(cur, total) {
+  if (total <= 7) return Array.from({length: total}, (_, i) => i + 1);
+  const pages = [1];
+  if (cur > 3) pages.push('…');
+  for (let p = Math.max(2, cur-1); p <= Math.min(total-1, cur+1); p++) pages.push(p);
+  if (cur < total - 2) pages.push('…');
+  pages.push(total);
+  return pages;
+}
+
+function goPage(p) {
+  currentPage = p;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ユーティリティ
+═══════════════════════════════════════════════════════════ */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── 起動 ── */
+loadData();
+</script>
+</body>
+</html>

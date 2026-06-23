@@ -4,6 +4,10 @@ drone_scraper.py
 Google News RSS からドローン事故ニュースを取得し、
 data.json に追記・上書き保存するスクリプト。
 
+新フィールド:
+    publisher : 新聞社名（朝日新聞/読売新聞/毎日新聞など。指定なしは null）
+    target    : 衝突対象の自動分類 "person"(人) / "object"(モノ) / "unknown"(不明)
+
 依存ライブラリ (requirements.txt に記述すること):
     feedparser>=6.0
     requests>=2.31
@@ -30,17 +34,61 @@ DEDUP_DAYS = 180           # この日数以内の記事のみ保持
 REQUEST_INTERVAL = 2.0     # RSS取得間の待機秒数
 
 QUERIES = [
-    # --- 国内 ---
-    {"q": "ドローン 事故",     "type": "domestic",       "lang": "ja", "region": "JP"},
-    {"q": "ドローン 墜落",     "type": "domestic",       "lang": "ja", "region": "JP"},
-    {"q": "ドローン 衝突",     "type": "domestic",       "lang": "ja", "region": "JP"},
-    {"q": "無人機 事故",       "type": "domestic",       "lang": "ja", "region": "JP"},
+    # --- 国内（一般キーワード） ---
+    {"q": "ドローン 事故",     "type": "domestic",       "lang": "ja", "region": "JP", "publisher": None},
+    {"q": "ドローン 墜落",     "type": "domestic",       "lang": "ja", "region": "JP", "publisher": None},
+    {"q": "ドローン 衝突",     "type": "domestic",       "lang": "ja", "region": "JP", "publisher": None},
+    {"q": "無人機 事故",       "type": "domestic",       "lang": "ja", "region": "JP", "publisher": None},
+    # --- 国内（新聞社指定） ---
+    {"q": "site:asahi.com ドローン事故",     "type": "domestic", "lang": "ja", "region": "JP", "publisher": "朝日新聞"},
+    {"q": "site:yomiuri.co.jp ドローン事故", "type": "domestic", "lang": "ja", "region": "JP", "publisher": "読売新聞"},
+    {"q": "site:mainichi.jp ドローン事故",   "type": "domestic", "lang": "ja", "region": "JP", "publisher": "毎日新聞"},
     # --- 国外 ---
-    {"q": "drone accident",    "type": "international",  "lang": "en", "region": "US"},
-    {"q": "UAV crash",         "type": "international",  "lang": "en", "region": "US"},
-    {"q": "drone incident",    "type": "international",  "lang": "en", "region": "US"},
-    {"q": "drone collision",   "type": "international",  "lang": "en", "region": "US"},
+    {"q": "drone accident",    "type": "international",  "lang": "en", "region": "US", "publisher": None},
+    {"q": "UAV crash",         "type": "international",  "lang": "en", "region": "US", "publisher": None},
+    {"q": "drone incident",    "type": "international",  "lang": "en", "region": "US", "publisher": None},
+    {"q": "drone collision",   "type": "international",  "lang": "en", "region": "US", "publisher": None},
 ]
+
+# ─── 衝突対象（人 / モノ / 不明）判定キーワード ───────────────────────────────
+
+# 人体・人身被害を示すキーワード（日英）
+PERSON_KEYWORDS = [
+    "人に", "人へ", "頭部", "顔", "頭", "腕", "足", "けが", "ケガ", "負傷",
+    "重傷", "軽傷", "死亡", "死傷", "搬送", "観客", "歩行者", "通行人",
+    "子供", "女性", "男性", "児童", "園児", "怪我",
+    "person", "people", "injur", "wound", "hurt", "hit a man", "hit a woman",
+    "struck a", "bystander", "spectator", "child", "pedestrian", "hospitalized",
+    "killed", "death", "fatal",
+]
+
+# 物・構造物・設備への衝突を示すキーワード（日英）
+OBJECT_KEYWORDS = [
+    "電線", "電柱", "建物", "屋根", "壁", "車", "自動車", "送電線", "鉄塔",
+    "フェンス", "ビル", "屋上", "橋", "施設", "設備", "タービン", "風車",
+    "家屋", "民家", "工場", "倉庫", "物損", "全損", "破損",
+    "power line", "pole", "building", "roof", "wall", "car", "vehicle",
+    "tower", "fence", "structure", "facility", "turbine", "warehouse",
+    "wire", "infrastructure", "property damage", "crashed into",
+]
+
+
+def _classify_target(title: str, desc: str = "") -> str:
+    """タイトル（と概要）から衝突対象を 'person' / 'object' / 'unknown' に分類。"""
+    text = f"{title} {desc}".lower()
+
+    person_hit = any(kw.lower() in text for kw in PERSON_KEYWORDS)
+    object_hit = any(kw.lower() in text for kw in OBJECT_KEYWORDS)
+
+    if person_hit and not object_hit:
+        return "person"
+    if object_hit and not person_hit:
+        return "object"
+    if person_hit and object_hit:
+        # 両方ヒットした場合は人身被害を優先（安全側に倒す）
+        return "person"
+    return "unknown"
+
 
 GNEWS_RSS_TEMPLATE = (
     "https://news.google.com/rss/search"
@@ -131,14 +179,17 @@ def fetch_feed(query_cfg: dict) -> list[dict]:
     for entry in feed.entries[:MAX_ITEMS_PER_QUERY]:
         title = _clean_title(entry.get("title", ""))
         link = entry.get("link", "")
+        summary = entry.get("summary", "")
         if not title or not link:
             continue
         items.append({
-            "date":     _parse_date(entry),
-            "location": _extract_location(title, query_cfg["type"]),
-            "type":     query_cfg["type"],
-            "title":    title,
-            "link":     link,
+            "date":      _parse_date(entry),
+            "location":  _extract_location(title, query_cfg["type"]),
+            "type":      query_cfg["type"],
+            "title":     title,
+            "link":      link,
+            "publisher": query_cfg.get("publisher"),
+            "target":    _classify_target(title, summary),
         })
     logger.info("  → %d items", len(items))
     return items
@@ -157,6 +208,12 @@ def main():
             logger.warning("data.json is broken. Starting fresh.")
 
     existing_links: set[str] = {item["link"] for item in existing}
+
+    # 既存データに新フィールド（publisher / target）がない場合は補完
+    for item in existing:
+        item.setdefault("publisher", None)
+        if "target" not in item:
+            item["target"] = _classify_target(item.get("title", ""))
 
     # 2. 新規フェッチ
     new_items: list[dict] = []

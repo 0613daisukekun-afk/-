@@ -102,7 +102,16 @@ header {
 /* ── コントロールバー ─────────────────────────────────── */
 .controls {
   display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-  margin-bottom: 16px; animation: fadeUp 0.5s 0.15s ease both;
+  margin-bottom: 12px; animation: fadeUp 0.5s 0.15s ease both;
+}
+.filter-row {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  margin-bottom: 16px; animation: fadeUp 0.5s 0.17s ease both;
+}
+.filter-row-label {
+  font-family: var(--mono); font-size: 11px; color: var(--text3);
+  letter-spacing: 0.05em; text-transform: uppercase; margin-right: 2px;
+  white-space: nowrap;
 }
 .tab-group { display: flex; border: 1px solid var(--border); border-radius: 99px; overflow: hidden; }
 .tab-btn {
@@ -115,6 +124,35 @@ header {
 .tab-btn.active { background: var(--accent); color: #fff; }
 .tab-btn.active[data-tab="domestic"]  { background: var(--domestic); }
 .tab-btn.active[data-tab="international"] { background: var(--intl); }
+
+/* 衝突対象フィルター（人/モノ/不明） */
+.pill-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill-btn {
+  font-family: var(--sans); font-size: 12px; font-weight: 500;
+  padding: 6px 14px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text2); transition: all 0.2s; white-space: nowrap;
+  display: flex; align-items: center; gap: 5px;
+}
+.pill-btn:hover { border-color: var(--border2); color: var(--text); }
+.pill-btn.active {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.pill-btn[data-target="person"].active  { background: var(--critical); border-color: var(--critical); }
+.pill-btn[data-target="object"].active  { background: var(--intl); border-color: var(--intl); }
+.pill-btn[data-target="unknown"].active { background: var(--text3); border-color: var(--text3); }
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.pill-dot.dot-person  { background: var(--critical); }
+.pill-dot.dot-object  { background: var(--intl); }
+.pill-dot.dot-unknown { background: var(--text3); }
+
+/* 新聞社フィルター */
+.publisher-select {
+  padding: 8px 14px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 99px; color: var(--text2); font-size: 13px;
+  font-family: var(--sans); cursor: pointer; outline: none;
+}
+.publisher-select:focus { border-color: var(--accent); }
 
 .search-wrap {
   flex: 1; min-width: 220px; position: relative;
@@ -180,6 +218,16 @@ tbody td { padding: 13px 16px; font-size: 14px; vertical-align: middle; }
 }
 .badge-domestic    { background: rgba(62,207,142,0.12); color: var(--domestic); border: 1px solid rgba(62,207,142,0.25); }
 .badge-international { background: rgba(245,158,66,0.12); color: var(--intl); border: 1px solid rgba(245,158,66,0.25); }
+
+.td-target .badge,
+.target-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 600; padding: 2px 9px;
+  border-radius: 99px; letter-spacing: 0.03em; white-space: nowrap;
+}
+.badge-person  { background: rgba(240,75,75,0.12);  color: var(--critical); border: 1px solid rgba(240,75,75,0.25); }
+.badge-object  { background: rgba(245,158,66,0.12); color: var(--intl);     border: 1px solid rgba(245,158,66,0.25); }
+.badge-unknown { background: rgba(78,86,112,0.18);  color: var(--text3);   border: 1px solid var(--border2); }
 .td-title a {
   color: var(--text); font-weight: 500; line-height: 1.45;
   transition: color 0.15s;
@@ -229,12 +277,16 @@ footer a:hover { color: var(--accent); }
 @keyframes fadeUp   { from{opacity:0;transform:translateY( 12px)} to{opacity:1;transform:translateY(0)} }
 
 /* ── レスポンシブ ─────────────────────────────────────── */
+.td-title .mobile-target-badge { display: none; }
 @media (max-width: 700px) {
   .stats-bar { flex-direction: column; }
   .stat-item { border-right: none; border-bottom: 1px solid var(--border); }
   .stat-item:last-child { border-bottom: none; }
   thead th.hide-sp, tbody td.hide-sp { display: none; }
   .header-meta { display: none; }
+  .filter-row { gap: 8px; }
+  .filter-row-label { width: 100%; margin-bottom: -4px; }
+  .td-title .mobile-target-badge { display: inline-flex; margin-left: 6px; }
 }
 </style>
 </head>
@@ -273,12 +325,16 @@ footer a:hover { color: var(--accent); }
       <div class="stat-label">国外</div>
     </div>
     <div class="stat-item">
+      <div class="stat-num" id="stat-person" style="color:var(--critical)">—</div>
+      <div class="stat-label">人身被害</div>
+    </div>
+    <div class="stat-item">
       <div class="stat-num" id="stat-today">—</div>
       <div class="stat-label">今日の新着</div>
     </div>
   </div>
 
-  <!-- コントロール -->
+  <!-- コントロール（タブ・検索・ソート） -->
   <div class="controls">
     <div class="tab-group" role="tablist">
       <button class="tab-btn active" data-tab="all"           role="tab" onclick="setTab('all',this)">すべて</button>
@@ -301,6 +357,32 @@ footer a:hover { color: var(--accent); }
     </select>
   </div>
 
+  <!-- 追加フィルター（衝突対象・新聞社） -->
+  <div class="filter-row">
+    <span class="filter-row-label">衝突対象</span>
+    <div class="pill-group" id="target-filter">
+      <button class="pill-btn active" data-target="all" onclick="setTargetFilter('all', this)">すべて</button>
+      <button class="pill-btn" data-target="person" onclick="setTargetFilter('person', this)">
+        <span class="pill-dot dot-person"></span>人
+      </button>
+      <button class="pill-btn" data-target="object" onclick="setTargetFilter('object', this)">
+        <span class="pill-dot dot-object"></span>モノ
+      </button>
+      <button class="pill-btn" data-target="unknown" onclick="setTargetFilter('unknown', this)">
+        <span class="pill-dot dot-unknown"></span>不明
+      </button>
+    </div>
+
+    <span class="filter-row-label" style="margin-left:8px">新聞社</span>
+    <select id="publisher-select" class="publisher-select" onchange="applyFilters()">
+      <option value="all">すべて</option>
+      <option value="朝日新聞">朝日新聞</option>
+      <option value="読売新聞">読売新聞</option>
+      <option value="毎日新聞">毎日新聞</option>
+      <option value="__other__">その他のソース</option>
+    </select>
+  </div>
+
   <!-- 結果メタ -->
   <div class="result-meta">
     <span id="result-count">読み込み中…</span>
@@ -315,11 +397,12 @@ footer a:hover { color: var(--accent); }
           <th style="width:100px">日付</th>
           <th class="hide-sp" style="width:110px">地域</th>
           <th class="hide-sp" style="width:80px">種別</th>
+          <th class="hide-sp" style="width:90px">衝突対象</th>
           <th>タイトル / ソース</th>
         </tr>
       </thead>
       <tbody id="table-body">
-        <tr><td colspan="4"><div class="empty-state"><div class="empty-icon">⏳</div><p>データを読み込んでいます…</p></div></td></tr>
+        <tr><td colspan="5"><div class="empty-state"><div class="empty-icon">⏳</div><p>データを読み込んでいます…</p></div></td></tr>
       </tbody>
     </table>
   </div>
@@ -346,6 +429,7 @@ let allData = [];
 let filtered = [];
 let currentPage = 1;
 let activeTab = 'all';
+let activeTargetFilter = 'all';
 
 /* ═══════════════════════════════════════════════════════════
    データ読み込み
@@ -361,6 +445,7 @@ async function loadData() {
     document.getElementById('stat-total').textContent    = allData.length.toLocaleString();
     document.getElementById('stat-domestic').textContent = allData.filter(d => d.type === 'domestic').length.toLocaleString();
     document.getElementById('stat-intl').textContent     = allData.filter(d => d.type === 'international').length.toLocaleString();
+    document.getElementById('stat-person').textContent   = allData.filter(d => d.target === 'person').length.toLocaleString();
     document.getElementById('stat-today').textContent    = allData.filter(d => d.date === today).length.toLocaleString();
 
     // 最終更新
@@ -371,7 +456,7 @@ async function loadData() {
     applyFilters();
   } catch (e) {
     document.getElementById('table-body').innerHTML =
-      `<tr><td colspan="4"><div class="empty-state">
+      `<tr><td colspan="5"><div class="empty-state">
          <div class="empty-icon">⚠️</div>
          <strong>data.json を読み込めませんでした</strong>
          <p>GitHub Pages へのデプロイ後、または同一ディレクトリに data.json を配置してください。</p>
@@ -395,14 +480,38 @@ function setTab(tab, btn) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   衝突対象フィルター切り替え
+═══════════════════════════════════════════════════════════ */
+function setTargetFilter(target, btn) {
+  activeTargetFilter = target;
+  document.querySelectorAll('#target-filter .pill-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentPage = 1;
+  applyFilters();
+}
+
+/* ═══════════════════════════════════════════════════════════
    フィルタ & ソート適用
 ═══════════════════════════════════════════════════════════ */
 function applyFilters() {
-  const q    = document.getElementById('search-input').value.trim().toLowerCase();
-  const sort = document.getElementById('sort-select').value;
+  const q         = document.getElementById('search-input').value.trim().toLowerCase();
+  const sort      = document.getElementById('sort-select').value;
+  const publisher = document.getElementById('publisher-select').value;
 
   filtered = allData.filter(item => {
     if (activeTab !== 'all' && item.type !== activeTab) return false;
+
+    // 衝突対象フィルター（データに target がない古い記事は 'unknown' とみなす）
+    const itemTarget = item.target || 'unknown';
+    if (activeTargetFilter !== 'all' && itemTarget !== activeTargetFilter) return false;
+
+    // 新聞社フィルター
+    if (publisher === '__other__') {
+      if (item.publisher) return false; // 朝日/読売/毎日のいずれかが付いているものは除外
+    } else if (publisher !== 'all') {
+      if (item.publisher !== publisher) return false;
+    }
+
     if (q) {
       const hay = `${item.title} ${item.location} ${item.date}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -438,7 +547,7 @@ function render() {
 
   const tbody = document.getElementById('table-body');
   if (page.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4">
+    tbody.innerHTML = `<tr><td colspan="5">
       <div class="empty-state">
         <div class="empty-icon">🔍</div>
         <strong>該当する事故情報がありません</strong>
@@ -449,17 +558,32 @@ function render() {
       const badgeCls = item.type === 'domestic' ? 'badge-domestic' : 'badge-international';
       const badgeLbl = item.type === 'domestic' ? '国内' : '国外';
       const host     = (() => { try { return new URL(item.link).hostname.replace('www.',''); } catch { return ''; } })();
+
+      const targetVal = item.target || 'unknown';
+      const targetMap = {
+        person:  { cls: 'badge-person',  icon: '🧍', label: '人' },
+        object:  { cls: 'badge-object',  icon: '🏠', label: 'モノ' },
+        unknown: { cls: 'badge-unknown', icon: '❔', label: '不明' },
+      };
+      const tInfo = targetMap[targetVal] || targetMap.unknown;
+
+      const sourceLine = item.publisher
+        ? `<span class="source-tag">${escHtml(item.publisher)}${host ? ' ・ ' + escHtml(host) : ''}</span>`
+        : (host ? `<span class="source-tag">${escHtml(host)}</span>` : '');
+
       return `
       <tr>
         <td class="td-date">${item.date}</td>
         <td class="td-loc hide-sp">${escHtml(item.location)}</td>
         <td class="td-type hide-sp"><span class="badge ${badgeCls}">${badgeLbl}</span></td>
+        <td class="td-target hide-sp"><span class="target-badge ${tInfo.cls}">${tInfo.icon} ${tInfo.label}</span></td>
         <td class="td-title">
           <a href="${escHtml(item.link)}" target="_blank" rel="noopener noreferrer">
             ${escHtml(item.title)}
             <span class="ext-icon">↗</span>
           </a>
-          ${host ? `<span class="source-tag">${escHtml(host)}</span>` : ''}
+          <span class="target-badge ${tInfo.cls} mobile-target-badge">${tInfo.icon} ${tInfo.label}</span>
+          ${sourceLine}
         </td>
       </tr>`;
     }).join('');

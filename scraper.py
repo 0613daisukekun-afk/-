@@ -1,16 +1,17 @@
 """
 drone_scraper.py
 ================
-Google News RSS からドローン事故ニュースを取得し、
-data.json に追記・上書き保存するスクリプト。
+Google News RSS と国土交通省の公式事故報告PDFから
+ドローン事故ニュースを取得し、data.json に追記・上書き保存するスクリプト。
 
 新フィールド:
-    publisher : 新聞社名（朝日新聞/読売新聞/毎日新聞など。指定なしは null）
+    publisher : 新聞社名（朝日新聞/読売新聞/毎日新聞/国土交通省など。指定なしは null）
     target    : 衝突対象の自動分類 "person"(人) / "object"(モノ) / "unknown"(不明)
 
 依存ライブラリ (requirements.txt に記述すること):
     feedparser>=6.0
     requests>=2.31
+    pdfplumber>=0.10
 """
 
 import json
@@ -25,12 +26,14 @@ from urllib.parse import quote
 import feedparser
 import requests
 
+from mlit_parser import fetch_mlit_records
+
 # ─── 設定 ──────────────────────────────────────────────────────────────────────
 
 LOG_LEVEL = logging.INFO
 OUTPUT_FILE = Path(__file__).parent / "data.json"
 MAX_ITEMS_PER_QUERY = 30   # 1クエリあたりの最大取得件数
-DEDUP_DAYS = 180           # この日数以内の記事のみ保持
+DEDUP_DAYS = 730           # この日数以内の記事のみ保持（約2年）
 REQUEST_INTERVAL = 2.0     # RSS取得間の待機秒数
 
 QUERIES = [
@@ -56,7 +59,7 @@ QUERIES = [
 
 # 新聞社指定クエリ（site:）は緩くマッチしがちなため、
 # 取得後にタイトルへドローン関連語を含むかを再チェックして絞り込む。
-DRONE_KEYWORDS_JA = ["ドローン", "無人機", "UAV", "マルチコプター"]
+DRONE_KEYWORDS_JA = ["ドローン", "無人機", "無人航空機", "UAV", "マルチコプター"]
 DRONE_KEYWORDS_EN = ["drone", "uav", "quadcopter"]
 
 
@@ -245,17 +248,22 @@ def main():
 
     # クリーンアップ: 新聞社指定で取得されたがドローンと無関係な過去データを除去
     # （以前の site:検索クエリが緩くマッチしていたことへの対処）
+    # 国交省データ（publisher == "国土交通省"）はこの対象外（タイトル形式が異なるため）
+    NEWSPAPER_PUBLISHERS = {"朝日新聞", "読売新聞", "毎日新聞"}
     before_count = len(existing)
     existing = [
         item for item in existing
-        if not (item.get("publisher") and not _is_drone_related(item.get("title", "")))
+        if not (
+            item.get("publisher") in NEWSPAPER_PUBLISHERS
+            and not _is_drone_related(item.get("title", ""))
+        )
     ]
     removed = before_count - len(existing)
     if removed:
         logger.info("既存データからドローン非関連の新聞社記事 %d 件を削除しました。", removed)
         existing_links = {item["link"] for item in existing}
 
-    # 2. 新規フェッチ
+    # 2. 新規フェッチ（Google News RSS）
     new_items: list[dict] = []
     for cfg in QUERIES:
         fetched = fetch_feed(cfg)
@@ -265,7 +273,32 @@ def main():
                 existing_links.add(item["link"])
         time.sleep(REQUEST_INTERVAL)
 
-    logger.info("New items fetched: %d", len(new_items))
+    logger.info("New items fetched (Google News): %d", len(new_items))
+
+    # 2b. 国土交通省 公式事故報告PDFから取得
+    # PDFは link が全レコード共通（MLIT_SOURCE_PAGE）のため、
+    # (date, location, title) の組み合わせで重複判定する
+    existing_mlit_keys = {
+        (item.get("date"), item.get("location"), item.get("title"))
+        for item in existing
+        if item.get("publisher") == "国土交通省"
+    }
+    try:
+        mlit_records = fetch_mlit_records()
+    except Exception as e:
+        logger.warning("国交省データの取得処理で例外が発生しました: %s", e)
+        mlit_records = []
+
+    new_mlit_count = 0
+    for rec in mlit_records:
+        key = (rec.get("date"), rec.get("location"), rec.get("title"))
+        if key not in existing_mlit_keys:
+            new_items.append(rec)
+            existing_mlit_keys.add(key)
+            new_mlit_count += 1
+
+    logger.info("New items fetched (国土交通省PDF): %d", new_mlit_count)
+    logger.info("New items total: %d", len(new_items))
 
     # 3. マージ・ID 振り直し・古いデータ削除
     cutoff = datetime.now(timezone.utc).toordinal() - DEDUP_DAYS

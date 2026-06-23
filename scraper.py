@@ -40,15 +40,34 @@ QUERIES = [
     {"q": "ドローン 衝突",     "type": "domestic",       "lang": "ja", "region": "JP", "publisher": None},
     {"q": "無人機 事故",       "type": "domestic",       "lang": "ja", "region": "JP", "publisher": None},
     # --- 国内（新聞社指定） ---
-    {"q": "site:asahi.com ドローン事故",     "type": "domestic", "lang": "ja", "region": "JP", "publisher": "朝日新聞"},
-    {"q": "site:yomiuri.co.jp ドローン事故", "type": "domestic", "lang": "ja", "region": "JP", "publisher": "読売新聞"},
-    {"q": "site:mainichi.jp ドローン事故",   "type": "domestic", "lang": "ja", "region": "JP", "publisher": "毎日新聞"},
+    # site:演算子 + スペース区切りキーワードで複数パターンをカバー
+    {"q": "site:asahi.com ドローン 事故",     "type": "domestic", "lang": "ja", "region": "JP", "publisher": "朝日新聞"},
+    {"q": "site:asahi.com ドローン 墜落",     "type": "domestic", "lang": "ja", "region": "JP", "publisher": "朝日新聞"},
+    {"q": "site:yomiuri.co.jp ドローン 事故", "type": "domestic", "lang": "ja", "region": "JP", "publisher": "読売新聞"},
+    {"q": "site:yomiuri.co.jp ドローン 墜落", "type": "domestic", "lang": "ja", "region": "JP", "publisher": "読売新聞"},
+    {"q": "site:mainichi.jp ドローン 事故",   "type": "domestic", "lang": "ja", "region": "JP", "publisher": "毎日新聞"},
+    {"q": "site:mainichi.jp ドローン 墜落",   "type": "domestic", "lang": "ja", "region": "JP", "publisher": "毎日新聞"},
     # --- 国外 ---
     {"q": "drone accident",    "type": "international",  "lang": "en", "region": "US", "publisher": None},
     {"q": "UAV crash",         "type": "international",  "lang": "en", "region": "US", "publisher": None},
     {"q": "drone incident",    "type": "international",  "lang": "en", "region": "US", "publisher": None},
     {"q": "drone collision",   "type": "international",  "lang": "en", "region": "US", "publisher": None},
 ]
+
+# 新聞社指定クエリ（site:）は緩くマッチしがちなため、
+# 取得後にタイトルへドローン関連語を含むかを再チェックして絞り込む。
+DRONE_KEYWORDS_JA = ["ドローン", "無人機", "UAV", "マルチコプター"]
+DRONE_KEYWORDS_EN = ["drone", "uav", "quadcopter"]
+
+
+def _is_drone_related(title: str) -> bool:
+    """新聞社指定クエリの結果から、ドローンと無関係な記事を除外するための判定。"""
+    t = title.lower()
+    if any(kw in title for kw in DRONE_KEYWORDS_JA):
+        return True
+    if any(kw in t for kw in DRONE_KEYWORDS_EN):
+        return True
+    return False
 
 # ─── 衝突対象（人 / モノ / 不明）判定キーワード ───────────────────────────────
 
@@ -175,12 +194,19 @@ def fetch_feed(query_cfg: dict) -> list[dict]:
         return []
 
     feed = feedparser.parse(resp.text)
+    is_publisher_query = query_cfg.get("publisher") is not None
     items = []
+    skipped_unrelated = 0
     for entry in feed.entries[:MAX_ITEMS_PER_QUERY]:
         title = _clean_title(entry.get("title", ""))
         link = entry.get("link", "")
         summary = entry.get("summary", "")
         if not title or not link:
+            continue
+        # 新聞社指定クエリ（site:）は site の全記事をかなり緩く拾うことがあるため、
+        # タイトルにドローン関連語を含まない記事は除外する
+        if is_publisher_query and not _is_drone_related(title):
+            skipped_unrelated += 1
             continue
         items.append({
             "date":      _parse_date(entry),
@@ -191,6 +217,8 @@ def fetch_feed(query_cfg: dict) -> list[dict]:
             "publisher": query_cfg.get("publisher"),
             "target":    _classify_target(title, summary),
         })
+    if skipped_unrelated:
+        logger.info("  （ドローン非関連のため %d 件を除外）", skipped_unrelated)
     logger.info("  → %d items", len(items))
     return items
 
@@ -214,6 +242,18 @@ def main():
         item.setdefault("publisher", None)
         if "target" not in item:
             item["target"] = _classify_target(item.get("title", ""))
+
+    # クリーンアップ: 新聞社指定で取得されたがドローンと無関係な過去データを除去
+    # （以前の site:検索クエリが緩くマッチしていたことへの対処）
+    before_count = len(existing)
+    existing = [
+        item for item in existing
+        if not (item.get("publisher") and not _is_drone_related(item.get("title", "")))
+    ]
+    removed = before_count - len(existing)
+    if removed:
+        logger.info("既存データからドローン非関連の新聞社記事 %d 件を削除しました。", removed)
+        existing_links = {item["link"] for item in existing}
 
     # 2. 新規フェッチ
     new_items: list[dict] = []
